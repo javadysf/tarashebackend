@@ -1,0 +1,23 @@
+# MongoDB Configuration File Example
+# Copy this to your MongoDB config location and enable authentication
+
+storage:
+  dbPath: C:\data\db  # Windows
+  # dbPath: /var/lib/mongodb  # Linux
+  # dbPath: /usr/local/var/mongodb  # macOS
+
+systemLog:
+  destination: file
+  path: C:\data\log\mongod.log  # Windows
+  # path: /var/log/mongodb/mongod.log  # Linux
+  # path: /usr/local/var/log/mongodb/mongo.log  # macOS
+  logAppend: true
+
+net:
+  port: 27017
+  bindIp: 127.0.0.1  # Only allow localhost connections
+
+# Enable authentication
+security:
+  authorization: enabled
+

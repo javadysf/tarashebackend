@@ -19,3 +19,6 @@ console.log(`COOKIE_SECRET=${cookieSecret}`);
 console.log('\n⚠️  IMPORTANT: Keep this secret secure and never commit it to version control!');
 console.log('✅ This is a cryptographically secure random string suitable for production use.\n');
 
+
+
+

@@ -11,6 +11,8 @@ const { body, param } = require('express-validator');
 const { validate } = require('../middleware/validate');
 const { logActivity } = require('../utils/activityLogger');
 
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://api.tarasheh.net';
+
 const router = express.Router();
 
 const productBaseValidators = [
@@ -178,7 +180,6 @@ router.post('/upload-images', auth, adminAuth, productImageUpload.array('images'
       return res.status(400).json({ message: 'هیچ فایلی آپلود نشده است' });
     }
 
-    const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3002}`
     const uploadedImages = req.files.map(file => ({
       url: `${PUBLIC_BASE_URL}/uploads/products/${file.filename}`,
       alt: req.body.alt || file.originalname,

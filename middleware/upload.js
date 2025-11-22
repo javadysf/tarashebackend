@@ -1,6 +1,8 @@
 const multer = require('multer');
 const cloudinary = require('../config/cloudinary');
 
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://api.tarasheh.net';
+
 const storage = multer.memoryStorage();
 
 const upload = multer({
@@ -37,8 +39,6 @@ const uploadToLocal = async (buffer, folder = 'avatars', originalName = 'image.j
   const filePath = path.join(uploadsDir, fileName);
   
   fs.writeFileSync(filePath, buffer);
-  
-  const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3002}`
   
   // Log local upload for monitoring
   console.log('📁 File saved to local storage:', {

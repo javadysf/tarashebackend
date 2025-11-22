@@ -366,15 +366,27 @@ router.post('/upload-image', [auth, adminAuth, upload.single('image')], async (r
     const image = {
       url: result.secure_url,
       alt: req.body.alt || 'تصویر دسته بندی',
-      public_id: result.public_id
+      public_id: result.public_id,
+      storage_type: result.storage_type || 'unknown'
     };
 
-    console.log('Category image uploaded successfully:', image.url);
+    console.log('Category image uploaded successfully:', {
+      url: image.url,
+      storage: image.storage_type
+    });
 
-    res.json({
+    const response = {
       message: 'تصویر با موفقیت آپلود شد',
       image
-    });
+    };
+
+    // Add warning if saved locally
+    if (result.storage_type === 'local') {
+      response.warning = result.warning || 'این تصویر در سرور محلی ذخیره شده است.';
+      console.warn('⚠️ Category image saved to local storage');
+    }
+
+    res.json(response);
   } catch (error) {
     console.error('Upload category image error:', error);
     res.status(500).json({ 

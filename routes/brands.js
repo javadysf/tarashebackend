@@ -51,12 +51,25 @@ router.post('/', [auth, adminAuth, upload.single('image')], async (req, res) => 
       image: {
         url: result.secure_url,
         alt: name.trim(),
-        public_id: result.public_id
+        public_id: result.public_id,
+        storage_type: result.storage_type || 'unknown'
       }
     });
 
     await brand.save();
-    res.status(201).json({ message: 'برند با موفقیت ایجاد شد', brand });
+    
+    const response = { 
+      message: 'برند با موفقیت ایجاد شد', 
+      brand 
+    };
+
+    // Add warning if saved locally
+    if (result.storage_type === 'local') {
+      response.warning = result.warning || 'تصویر برند در سرور محلی ذخیره شده است.';
+      console.warn('⚠️ Brand image saved to local storage');
+    }
+
+    res.status(201).json(response);
   } catch (error) {
     console.error('Create brand error:', error);
     if (error.code === 11000) {
@@ -99,6 +112,7 @@ router.put('/:id', [auth, adminAuth, upload.single('image')], async (req, res) =
       // Upload new image
       const result = await uploadToCloudinary(req.file.buffer, 'brands', req.file.originalname);
       imageData = {
+        storage_type: result.storage_type || 'unknown',
         url: result.secure_url,
         alt: name?.trim() || brand.name,
         public_id: result.public_id
@@ -117,7 +131,18 @@ router.put('/:id', [auth, adminAuth, upload.single('image')], async (req, res) =
       { new: true, runValidators: true }
     );
 
-    res.json({ message: 'برند با موفقیت بهروزرسانی شد', brand: updatedBrand });
+    const response = { 
+      message: 'برند با موفقیت بهروزرسانی شد', 
+      brand: updatedBrand 
+    };
+
+    // Add warning if image was saved locally
+    if (req.file && imageData && imageData.storage_type === 'local') {
+      response.warning = 'تصویر برند در سرور محلی ذخیره شده است. برای بهینه‌سازی بهتر، تنظیمات Cloudinary را فعال کنید.';
+      console.warn('⚠️ Brand image saved to local storage');
+    }
+
+    res.json(response);
   } catch (error) {
     console.error('Update brand error:', error);
     if (error.code === 11000) {

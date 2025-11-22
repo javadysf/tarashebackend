@@ -885,16 +885,9 @@ router.post('/upload-images', [auth, adminAuth, upload.array('images', 20)], asy
       return res.status(400).json({ message: 'فایل تصویر ارسال نشده' });
     }
 
-    // Check Cloudinary configuration
-    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-      console.error('Cloudinary configuration missing');
-      return res.status(500).json({ 
-        message: 'تنظیمات آپلوح تصاویر کامل نیست. لطفاً با مدیر سیستم تماس بگیرید.' 
-      });
-    }
-
-    console.log('Starting upload to Cloudinary...');
+    console.log('Starting upload process...');
     
+    // Upload files with individual error handling - don't fail all if one fails
     const uploadPromises = req.files.map(async (file, index) => {
       try {
         console.log(`Uploading file ${index + 1}/${req.files.length}:`, {
@@ -904,32 +897,118 @@ router.post('/upload-images', [auth, adminAuth, upload.array('images', 20)], asy
         });
         
         const result = await uploadToCloudinary(file.buffer, 'products', file.originalname);
-        console.log(`File ${index + 1} uploaded successfully:`, result.secure_url);
+        console.log(`File ${index + 1} uploaded successfully:`, {
+          url: result.secure_url,
+          storage: result.storage_type || 'unknown'
+        });
         
-        return result;
+        return { success: true, result, index };
       } catch (error) {
         console.error(`Error uploading file ${index + 1}:`, error);
-        throw error;
+        // Even if upload fails, try to save locally as last resort
+        try {
+          const { uploadToLocal } = require('../middleware/upload');
+          const localResult = await uploadToLocal(file.buffer, 'products', file.originalname);
+          console.log(`File ${index + 1} saved to local storage as fallback`);
+          return { success: true, result: localResult, index };
+        } catch (localError) {
+          console.error(`Failed to save file ${index + 1} locally:`, localError);
+          // Return error but don't throw - we'll handle it later
+          return { success: false, error: error.message || 'خطا در آپلود فایل', index };
+        }
       }
     });
     
-    const results = await Promise.all(uploadPromises);
+    // Wait for all uploads to complete (even if some fail)
+    const uploadResults = await Promise.allSettled(uploadPromises);
+    
+    // Process results
+    const results = [];
+    const errors = [];
+    
+    uploadResults.forEach((settled, index) => {
+      if (settled.status === 'fulfilled') {
+        const uploadResult = settled.value;
+        if (uploadResult.success) {
+          results.push(uploadResult.result);
+        } else {
+          errors.push({
+            file: req.files[index]?.originalname || `فایل ${index + 1}`,
+            error: uploadResult.error
+          });
+        }
+      } else {
+        errors.push({
+          file: req.files[index]?.originalname || `فایل ${index + 1}`,
+          error: settled.reason?.message || 'خطای نامشخص'
+        });
+      }
+    });
+    
+    // If no files were uploaded successfully, return error
+    if (results.length === 0) {
+      return res.status(400).json({
+        message: 'هیچ فایلی آپلود نشد',
+        errors: errors.map(e => `${e.file}: ${e.error}`)
+      });
+    }
+    
+    // Check if any files were saved locally
+    const localFiles = results.filter(r => r.storage_type === 'local');
+    const cloudinaryFiles = results.filter(r => r.storage_type === 'cloudinary');
     
     const images = results.map((result, index) => ({
       url: result.secure_url,
       alt: req.body.alt || `تصویر محصول ${index + 1}`,
-      public_id: result.public_id
+      public_id: result.public_id,
+      storage_type: result.storage_type || 'unknown'
     }));
 
-    console.log('All images uploaded successfully:', images.length);
+    console.log('Upload summary:', {
+      total: images.length,
+      cloudinary: cloudinaryFiles.length,
+      local: localFiles.length,
+      failed: errors.length
+    });
 
-    res.json({
+    // Prepare response with warnings if needed
+    const response = {
       message: `${images.length} تصویر با موفقیت آپلود شد`,
       images,
-      count: images.length
-    });
+      count: images.length,
+      storage_summary: {
+        cloudinary: cloudinaryFiles.length,
+        local: localFiles.length
+      }
+    };
+
+    // Add warning if any files were saved locally (this is NOT an error)
+    if (localFiles.length > 0) {
+      response.warning = localFiles.length === images.length
+        ? 'تمام تصاویر در سرور محلی ذخیره شدند. برای بهینه‌سازی بهتر، تنظیمات Cloudinary را فعال کنید.'
+        : `${localFiles.length} تصویر در سرور محلی ذخیره شدند. برای بهینه‌سازی بهتر، تنظیمات Cloudinary را فعال کنید.`;
+      
+      console.warn('⚠️ WARNING: Some files were saved locally:', {
+        count: localFiles.length,
+        files: localFiles.map(f => f.public_id)
+      });
+    }
+
+    // Add warnings for failed files (but don't fail the whole request)
+    if (errors.length > 0) {
+      response.warnings = response.warnings || [];
+      errors.forEach(err => {
+        response.warnings.push(`${err.file}: ${err.error}`);
+      });
+      console.warn('⚠️ Some files failed to upload:', errors);
+    }
+
+    // Always return 200 if at least one file was uploaded successfully
+    // Warnings are included in response but don't cause error status
+    res.status(200).json(response);
   } catch (error) {
     console.error('Upload images error:', error);
+    // Only return error if it's a critical error (not related to storage)
     res.status(500).json({ 
       message: error.message || 'خطا در آپلود تصاویر',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined

@@ -1,7 +1,18 @@
 const multer = require('multer');
 const cloudinary = require('../config/cloudinary');
 
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://api.tarasheh.net';
+// Determine PUBLIC_BASE_URL based on environment
+const getPublicBaseUrl = () => {
+  if (process.env.PUBLIC_BASE_URL) {
+    return process.env.PUBLIC_BASE_URL;
+  }
+  // For development, use localhost with PORT
+  const PORT = process.env.PORT || 4000;
+  const isProduction = process.env.NODE_ENV === 'production';
+  return isProduction ? 'https://api.tarasheh.net' : `http://localhost:${PORT}`;
+};
+
+const PUBLIC_BASE_URL = getPublicBaseUrl();
 
 const storage = multer.memoryStorage();
 
@@ -41,12 +52,15 @@ const uploadToLocal = async (buffer, folder = 'avatars', originalName = 'image.j
   fs.writeFileSync(filePath, buffer);
   
   // Log local upload for monitoring
-  console.log('📁 File saved to local storage:', {
-    folder,
-    fileName,
-    size: buffer.length,
-    path: filePath
-  });
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('📁 [LOCAL STORAGE] فایل در سرور محلی ذخیره شد');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('📂 پوشه:', folder);
+  console.log('📄 نام فایل:', fileName);
+  console.log('📊 حجم فایل:', (buffer.length / 1024).toFixed(2), 'KB');
+  console.log('📍 مسیر کامل:', filePath);
+  console.log('🔗 URL دسترسی:', `${PUBLIC_BASE_URL}/uploads/${folder}/${fileName}`);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
   return {
     secure_url: `${PUBLIC_BASE_URL}/uploads/${folder}/${fileName}`,
@@ -130,11 +144,16 @@ const uploadToCloudinary = async (buffer, folder = 'avatars', originalName = 'im
     });
     
     if (!hasCloudName || !hasApiKey || !hasApiSecret) {
-      console.warn('⚠️ Cloudinary not fully configured, using local upload');
-      console.log('💡 To use Cloudinary, add these to your .env file:');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.warn('⚠️  [CONFIG] Cloudinary تنظیم نشده است');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('📄 نام فایل:', originalName);
+      console.log('💡 برای استفاده از Cloudinary، این متغیرها را در .env اضافه کنید:');
       console.log('   CLOUDINARY_CLOUD_NAME=your_cloud_name');
       console.log('   CLOUDINARY_API_KEY=your_api_key');
       console.log('   CLOUDINARY_API_SECRET=your_api_secret');
+      console.log('📁 در حال ذخیره در سرور محلی...');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       return uploadToLocal(buffer, folder, originalName);
     }
 
@@ -142,16 +161,28 @@ const uploadToCloudinary = async (buffer, folder = 'avatars', originalName = 'im
     
     try {
       const result = await uploadToCloudinaryWithRetry(buffer, folder, originalName);
-      console.log('✅ Cloudinary upload successful:', result.secure_url);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('☁️  [CLOUDINARY] آپلود با موفقیت انجام شد');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('📂 پوشه:', folder);
+      console.log('📄 نام فایل:', originalName);
+      console.log('🔗 URL Cloudinary:', result.secure_url);
+      console.log('🆔 Public ID:', result.public_id);
+      console.log('📊 حجم فایل:', (buffer.length / 1024).toFixed(2), 'KB');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       return {
         ...result,
         storage_type: 'cloudinary' // Flag to indicate Cloudinary storage
       };
     } catch (error) {
-      console.error('❌ Cloudinary upload failed after retries:', error);
-      console.error('   Error message:', error.message);
-      console.error('   Error code:', error.http_code);
-      console.warn('📁 Falling back to local upload');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('❌ [CLOUDINARY ERROR] خطا در آپلود به Cloudinary');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('📄 نام فایل:', originalName);
+      console.error('💬 پیام خطا:', error.message);
+      console.error('🔢 کد خطا:', error.http_code);
+      console.warn('📁 در حال ذخیره در سرور محلی...');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       return uploadToLocal(buffer, folder, originalName);
     }
   } catch (error) {

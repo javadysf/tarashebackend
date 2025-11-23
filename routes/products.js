@@ -11,7 +11,18 @@ const { body, param } = require('express-validator');
 const { validate } = require('../middleware/validate');
 const { logActivity } = require('../utils/activityLogger');
 
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://api.tarasheh.net';
+// Determine PUBLIC_BASE_URL based on environment
+const getPublicBaseUrl = () => {
+  if (process.env.PUBLIC_BASE_URL) {
+    return process.env.PUBLIC_BASE_URL;
+  }
+  // For development, use localhost with PORT
+  const PORT = process.env.PORT || 4000;
+  const isProduction = process.env.NODE_ENV === 'production';
+  return isProduction ? 'https://api.tarasheh.net' : `http://localhost:${PORT}`;
+};
+
+const PUBLIC_BASE_URL = getPublicBaseUrl();
 
 const router = express.Router();
 
@@ -171,30 +182,8 @@ const productImageUpload = multer({
   }
 });
 
-// @route   POST /api/products/upload-images
-// @desc    Upload product images
-// @access  Private/Admin
-router.post('/upload-images', auth, adminAuth, productImageUpload.array('images', 10), (req, res) => {
-  try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ message: 'هیچ فایلی آپلود نشده است' });
-    }
-
-    const uploadedImages = req.files.map(file => ({
-      url: `${PUBLIC_BASE_URL}/uploads/products/${file.filename}`,
-      alt: req.body.alt || file.originalname,
-      public_id: file.filename
-    }));
-
-    res.json({
-      message: 'تصاویر با موفقیت آپلود شدند',
-      images: uploadedImages
-    });
-  } catch (error) {
-    console.error('Upload error:', error);
-    res.status(500).json({ message: 'خطا در آپلود تصاویر' });
-  }
-});
+// NOTE: This endpoint is deprecated. Use the one below that supports Cloudinary.
+// Keeping for backward compatibility but it will be removed in future versions.
 
 // @route   GET /api/products
 // @desc    Get all products
@@ -873,20 +862,23 @@ router.post('/:id/reviews', auth, async (req, res) => {
 });
 
 // @route   POST /api/products/upload-images
-// @desc    Upload product images
+// @desc    Upload product images (supports Cloudinary and local storage)
 // @access  Private/Admin
 router.post('/upload-images', [auth, adminAuth, upload.array('images', 20)], async (req, res) => {
   try {
-    console.log('Upload request received:', {
-      filesCount: req.files?.length || 0,
-      body: req.body
-    });
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🚀 [شروع آپلود] درخواست آپلود تصاویر محصول دریافت شد');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📦 تعداد فایل‌ها:', req.files?.length || 0);
+    console.log('👤 کاربر:', req.user?.name || req.user?.email || 'نامشخص');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
     if (!req.files || req.files.length === 0) {
+      console.error('❌ [خطا] هیچ فایلی ارسال نشده است');
       return res.status(400).json({ message: 'فایل تصویر ارسال نشده' });
     }
 
-    console.log('Starting upload process...');
+    console.log('🔄 [در حال پردازش] شروع فرآیند آپلود...\n');
     
     // Upload files with individual error handling - don't fail all if one fails
     const uploadPromises = req.files.map(async (file, index) => {
@@ -898,22 +890,35 @@ router.post('/upload-images', [auth, adminAuth, upload.array('images', 20)], asy
         });
         
         const result = await uploadToCloudinary(file.buffer, 'products', file.originalname);
-        console.log(`File ${index + 1} uploaded successfully:`, {
-          url: result.secure_url,
-          storage: result.storage_type || 'unknown'
-        });
+        
+        // Log detailed upload result
+        const storageType = result.storage_type || 'unknown';
+        const storageIcon = storageType === 'cloudinary' ? '☁️' : '📁';
+        console.log(`\n${storageIcon} [${storageType.toUpperCase()}] فایل ${index + 1}/${req.files.length} آپلود شد:`);
+        console.log(`   📄 نام: ${file.originalname}`);
+        console.log(`   🔗 URL: ${result.secure_url}`);
+        console.log(`   📊 حجم: ${(file.size / 1024).toFixed(2)} KB`);
+        console.log(`   🆔 Public ID: ${result.public_id}`);
+        console.log(`   ✅ وضعیت: موفق\n`);
         
         return { success: true, result, index };
       } catch (error) {
-        console.error(`Error uploading file ${index + 1}:`, error);
+        console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.error(`❌ [خطا] خطا در آپلود فایل ${index + 1}/${req.files.length}`);
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.error(`📄 نام فایل: ${file.originalname}`);
+        console.error(`💬 پیام خطا: ${error.message || 'خطای نامشخص'}`);
+        console.error('🔄 در حال تلاش برای ذخیره در سرور محلی...');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+        
         // Even if upload fails, try to save locally as last resort
         try {
           const { uploadToLocal } = require('../middleware/upload');
           const localResult = await uploadToLocal(file.buffer, 'products', file.originalname);
-          console.log(`File ${index + 1} saved to local storage as fallback`);
+          console.log(`✅ فایل ${index + 1} با موفقیت در سرور محلی ذخیره شد (fallback)`);
           return { success: true, result: localResult, index };
         } catch (localError) {
-          console.error(`Failed to save file ${index + 1} locally:`, localError);
+          console.error(`❌ خطا در ذخیره فایل ${index + 1} در سرور محلی:`, localError.message);
           // Return error but don't throw - we'll handle it later
           return { success: false, error: error.message || 'خطا در آپلود فایل', index };
         }
@@ -965,12 +970,34 @@ router.post('/upload-images', [auth, adminAuth, upload.array('images', 20)], asy
       storage_type: result.storage_type || 'unknown'
     }));
 
-    console.log('Upload summary:', {
-      total: images.length,
-      cloudinary: cloudinaryFiles.length,
-      local: localFiles.length,
-      failed: errors.length
-    });
+    // Final summary log
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📊 [خلاصه آپلود] نتیجه نهایی');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`✅ کل فایل‌های آپلود شده: ${images.length}`);
+    console.log(`☁️  آپلود شده در Cloudinary: ${cloudinaryFiles.length}`);
+    console.log(`📁 آپلود شده در سرور محلی: ${localFiles.length}`);
+    if (errors.length > 0) {
+      console.log(`❌ فایل‌های ناموفق: ${errors.length}`);
+    }
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    
+    // Log each file's storage location
+    if (cloudinaryFiles.length > 0) {
+      console.log('☁️  فایل‌های آپلود شده در Cloudinary:');
+      cloudinaryFiles.forEach((file, idx) => {
+        console.log(`   ${idx + 1}. ${file.public_id} → ${file.secure_url}`);
+      });
+      console.log('');
+    }
+    
+    if (localFiles.length > 0) {
+      console.log('📁 فایل‌های آپلود شده در سرور محلی:');
+      localFiles.forEach((file, idx) => {
+        console.log(`   ${idx + 1}. ${file.public_id} → ${file.secure_url}`);
+      });
+      console.log('');
+    }
 
     // Prepare response with warnings if needed
     const response = {
@@ -1008,7 +1035,13 @@ router.post('/upload-images', [auth, adminAuth, upload.array('images', 20)], asy
     // Warnings are included in response but don't cause error status
     res.status(200).json(response);
   } catch (error) {
-    console.error('Upload images error:', error);
+    console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('❌ [خطای بحرانی] خطا در فرآیند آپلود تصاویر');
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('💬 پیام خطا:', error.message);
+    console.error('📊 Stack:', error.stack);
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    
     // Only return error if it's a critical error (not related to storage)
     res.status(500).json({ 
       message: error.message || 'خطا در آپلود تصاویر',

@@ -9,6 +9,13 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
+// Ensure logs directory has proper permissions (handles //lrt error)
+try {
+  fs.accessSync(logsDir, fs.constants.W_OK);
+} catch (err) {
+  console.warn('Warning: Logs directory may not be writable:', logsDir);
+}
+
 // Define log format
 const logFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
